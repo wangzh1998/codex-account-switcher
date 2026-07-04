@@ -23,7 +23,7 @@ class AccountService {
             .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     }
     async getCurrentAccountName() {
-        const authName = await this.readAuthAccountName();
+        const authName = await this.getMarkedAccountName();
         if (authName)
             return authName;
         const currentName = await this.readCurrentNameFile();
@@ -63,14 +63,8 @@ class AccountService {
         if (await this.pathExists(destination)) {
             throw new errors_1.AccountAlreadyExistsError(name);
         }
-        await this.syncCurrentAuthSnapshot();
-        if (await this.pathExists(paths_1.authPath)) {
-            await promises_1.default.copyFile(paths_1.authPath, destination);
-        }
-        else {
-            await promises_1.default.writeFile(destination, "{}\n", "utf8");
-        }
-        await this.writeAccountNameToFile(destination, name);
+        await promises_1.default.writeFile(destination, `${JSON.stringify({ [AUTH_ACCOUNT_FIELD]: name }, null, 2)}\n`, "utf8");
+        await this.restrictPermissions(destination);
         await this.replaceWithCopy(destination, paths_1.authPath);
         await this.writeCurrentName(name);
         return name;
@@ -81,12 +75,10 @@ class AccountService {
         if (!(await this.pathExists(source))) {
             throw new errors_1.AccountNotFoundError(name);
         }
-        await this.syncCurrentAuthSnapshot();
         await this.ensureDir(paths_1.accountsDir);
         await this.ensureDir(paths_1.codexDir);
         await this.replaceWithCopy(source, paths_1.authPath);
         await this.writeAuthAccountName(name);
-        await this.writeAccountNameToFile(source, name);
         await this.writeCurrentName(name);
         return name;
     }
@@ -125,23 +117,7 @@ class AccountService {
     async ensureDir(dirPath) {
         await promises_1.default.mkdir(dirPath, { recursive: true });
     }
-    async syncCurrentAuthSnapshot() {
-        const currentName = await this.readAuthAccountName();
-        if (!currentName || !(await this.pathExists(paths_1.authPath))) {
-            return null;
-        }
-        await this.ensureDir(paths_1.accountsDir);
-        const destination = this.accountFilePath(currentName);
-        if ((await this.pathsReferToSameFile(paths_1.authPath, destination)) ||
-            (await this.filesHaveSameContents(paths_1.authPath, destination))) {
-            return null;
-        }
-        await this.backupAccountIfExists(currentName, destination);
-        await promises_1.default.copyFile(paths_1.authPath, destination);
-        await this.restrictPermissions(destination);
-        return currentName;
-    }
-    async readAuthAccountName() {
+    async getMarkedAccountName() {
         try {
             const contents = await promises_1.default.readFile(paths_1.authPath, "utf8");
             const parsed = JSON.parse(contents);

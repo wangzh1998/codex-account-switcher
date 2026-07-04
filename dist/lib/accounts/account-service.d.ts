@@ -9,8 +9,7 @@ export declare class AccountService {
     private normalizeAccountName;
     private ensureAuthFileExists;
     private ensureDir;
-    private syncCurrentAuthSnapshot;
-    private readAuthAccountName;
+    getMarkedAccountName(): Promise<string | null>;
     private writeAuthAccountName;
     private writeAccountNameToFile;
     private backupAccountIfExists;

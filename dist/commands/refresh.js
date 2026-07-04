@@ -7,7 +7,7 @@ class RefreshCommand extends base_command_1.BaseCommand {
         await this.runSafe(async () => {
             var _a;
             const { args } = await this.parse(RefreshCommand);
-            const name = (_a = args.account) !== null && _a !== void 0 ? _a : (await this.accounts.getCurrentAccountName());
+            const name = (_a = args.account) !== null && _a !== void 0 ? _a : (await this.accounts.getMarkedAccountName());
             if (!name) {
                 this.error("No account marker found. Run `codex-auth refresh <name>` once for this login.");
             }

@@ -26,7 +26,7 @@ export class AccountService {
   }
 
   public async getCurrentAccountName(): Promise<string | null> {
-    const authName = await this.readAuthAccountName();
+    const authName = await this.getMarkedAccountName();
     if (authName) return authName;
 
     const currentName = await this.readCurrentNameFile();
@@ -70,15 +70,8 @@ export class AccountService {
       throw new AccountAlreadyExistsError(name);
     }
 
-    await this.syncCurrentAuthSnapshot();
-
-    if (await this.pathExists(authPath)) {
-      await fsp.copyFile(authPath, destination);
-    } else {
-      await fsp.writeFile(destination, "{}\n", "utf8");
-    }
-
-    await this.writeAccountNameToFile(destination, name);
+    await fsp.writeFile(destination, `${JSON.stringify({ [AUTH_ACCOUNT_FIELD]: name }, null, 2)}\n`, "utf8");
+    await this.restrictPermissions(destination);
     await this.replaceWithCopy(destination, authPath);
     await this.writeCurrentName(name);
     return name;
@@ -92,13 +85,11 @@ export class AccountService {
       throw new AccountNotFoundError(name);
     }
 
-    await this.syncCurrentAuthSnapshot();
     await this.ensureDir(accountsDir);
     await this.ensureDir(codexDir);
 
     await this.replaceWithCopy(source, authPath);
     await this.writeAuthAccountName(name);
-    await this.writeAccountNameToFile(source, name);
     await this.writeCurrentName(name);
     return name;
   }
@@ -148,28 +139,7 @@ export class AccountService {
     await fsp.mkdir(dirPath, { recursive: true });
   }
 
-  private async syncCurrentAuthSnapshot(): Promise<string | null> {
-    const currentName = await this.readAuthAccountName();
-    if (!currentName || !(await this.pathExists(authPath))) {
-      return null;
-    }
-
-    await this.ensureDir(accountsDir);
-    const destination = this.accountFilePath(currentName);
-    if (
-      (await this.pathsReferToSameFile(authPath, destination)) ||
-      (await this.filesHaveSameContents(authPath, destination))
-    ) {
-      return null;
-    }
-
-    await this.backupAccountIfExists(currentName, destination);
-    await fsp.copyFile(authPath, destination);
-    await this.restrictPermissions(destination);
-    return currentName;
-  }
-
-  private async readAuthAccountName(): Promise<string | null> {
+  public async getMarkedAccountName(): Promise<string | null> {
     try {
       const contents = await fsp.readFile(authPath, "utf8");
       const parsed = JSON.parse(contents) as Record<string, unknown> | null;

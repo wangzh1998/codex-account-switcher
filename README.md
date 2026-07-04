@@ -9,7 +9,7 @@ A command-line tool that lets you manage and switch between multiple Codex accou
 
 Codex stores your authentication session in a single `auth.json` file. This tool works by creating named snapshots of that file for each of your accounts. When you want to switch, `codex-auth` copies the selected snapshot into the active `~/.codex/auth.json`.
 
-This fork also writes a small `codex_auth_account` marker into each managed auth snapshot. The marker lets `codex-auth use <name>` safely save the currently active account before switching away from it, without relying on symlinks that newer Codex CLI versions may replace during `codex login`.
+This fork also writes a small `codex_auth_account` marker into the active auth file. The marker lets `codex-auth refresh` know which named snapshot should receive the current login state. Account switching itself is intentionally a pure switch: `codex-auth use <name>` updates `~/.codex/auth.json` but does not write back to any saved snapshot.
 
 ## Requirements
 
@@ -70,9 +70,9 @@ codex-auth current
 ### Command reference
 
 - `codex-auth save <name>` – Validates `<name>`, ensures `auth.json` exists, marks it as `<name>`, then snapshots it to `~/.codex/accounts/<name>.json`.
-- `codex-auth new <name>` – Creates `~/.codex/accounts/<name>.json` from the current auth state, tags it with the new account marker, switches `auth.json` to that snapshot, and refuses to overwrite an existing snapshot.
-- `codex-auth refresh [name]` – Copies the current `~/.codex/auth.json` to the marked or named account snapshot and records that name as active. After a fresh `codex login` removes the marker, run `codex-auth refresh <name>` once.
-- `codex-auth use [name]` – Accepts a name or launches an interactive selector with the current account pre-selected. If the current `auth.json` has a `codex_auth_account` marker, first syncs it back to that snapshot, then copies the selected snapshot into place and records the active name.
+- `codex-auth new <name>` – Creates an empty marked `~/.codex/accounts/<name>.json`, switches `auth.json` to it, and refuses to overwrite an existing snapshot. Run `codex login` next, then `codex-auth refresh <name>`.
+- `codex-auth refresh [name]` – Copies the current `~/.codex/auth.json` to the marked or named account snapshot and records that name as active. If there is no marker, it refuses to guess from `~/.codex/current`; run `codex-auth refresh <name>` explicitly.
+- `codex-auth use [name]` – Accepts a name or launches an interactive selector with the current account pre-selected. Copies the selected snapshot into place, writes the active marker to `auth.json`, and records the active name. It does not modify any saved account snapshot.
 - `codex-auth list` – Lists all saved snapshots alphabetically and marks the active one with `*`.
 - `codex-auth current` – Prints the active account name, or a friendly message if none is active.
 
@@ -80,5 +80,6 @@ Notes:
 
 - Uses regular file copies on all platforms. It does not rely on symlinks.
 - `codex-auth use <name>` refreshes the on-disk `~/.codex/auth.json`, but it cannot force an already-running Codex process to hot-reload its in-memory auth. For reliable switching, exit Codex, run `codex-auth use <name>`, then start Codex again or run `codex resume --last`.
+- Because `use` never writes snapshots, run `codex-auth refresh <name>` after logging in to a new account or whenever you intentionally want to save the current `auth.json` back to a named snapshot.
 - Do not commit `~/.codex/auth.json`, `~/.codex/accounts/*.json`, or `.backups/`; they contain credentials.
 - Requires Node 18+.
