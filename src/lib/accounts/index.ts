@@ -2,6 +2,7 @@ import { AccountService } from "./account-service";
 
 export { AccountService } from "./account-service";
 export {
+  AccountAlreadyExistsError,
   AccountNotFoundError,
   AuthFileMissingError,
   CodexAuthError,

@@ -10,6 +10,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "engines": {
@@ -31,12 +32,12 @@
   "preferGlobal": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Sls0n/codex-account-switcher.git"
+    "url": "git+https://github.com/wangzh1998/codex-account-switcher.git"
   },
   "bugs": {
-    "url": "https://github.com/Sls0n/codex-account-switcher/issues"
+    "url": "https://github.com/wangzh1998/codex-account-switcher/issues"
   },
-  "homepage": "https://github.com/Sls0n/codex-account-switcher#readme",
+  "homepage": "https://github.com/wangzh1998/codex-account-switcher#readme",
   "author": "Sls0n",
   "dependencies": {
     "@oclif/core": "^3.0.0",

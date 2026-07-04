@@ -3,12 +3,14 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { accountsDir, authPath, codexDir, currentNamePath } from "../config/paths";
 import {
+  AccountAlreadyExistsError,
   AccountNotFoundError,
   AuthFileMissingError,
   InvalidAccountNameError,
 } from "./errors";
 
 const ACCOUNT_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const AUTH_ACCOUNT_FIELD = "codex_auth_account";
 
 export class AccountService {
   public async listAccountNames(): Promise<string[]> {
@@ -24,6 +26,9 @@ export class AccountService {
   }
 
   public async getCurrentAccountName(): Promise<string | null> {
+    const authName = await this.readAuthAccountName();
+    if (authName) return authName;
+
     const currentName = await this.readCurrentNameFile();
     if (currentName) return currentName;
 
@@ -47,7 +52,35 @@ export class AccountService {
     await this.ensureAuthFileExists();
     await this.ensureDir(accountsDir);
     const destination = this.accountFilePath(name);
+    await this.writeAuthAccountName(name);
+    await this.backupAccountIfExists(name, destination);
     await fsp.copyFile(authPath, destination);
+    await this.restrictPermissions(destination);
+    await this.writeCurrentName(name);
+    return name;
+  }
+
+  public async createAccount(rawName: string): Promise<string> {
+    const name = this.normalizeAccountName(rawName);
+    await this.ensureDir(accountsDir);
+    await this.ensureDir(codexDir);
+
+    const destination = this.accountFilePath(name);
+    if (await this.pathExists(destination)) {
+      throw new AccountAlreadyExistsError(name);
+    }
+
+    await this.syncCurrentAuthSnapshot();
+
+    if (await this.pathExists(authPath)) {
+      await fsp.copyFile(authPath, destination);
+    } else {
+      await fsp.writeFile(destination, "{}\n", "utf8");
+    }
+
+    await this.writeAccountNameToFile(destination, name);
+    await this.replaceWithCopy(destination, authPath);
+    await this.writeCurrentName(name);
     return name;
   }
 
@@ -59,15 +92,26 @@ export class AccountService {
       throw new AccountNotFoundError(name);
     }
 
+    await this.syncCurrentAuthSnapshot();
     await this.ensureDir(accountsDir);
     await this.ensureDir(codexDir);
 
-    if (process.platform === "win32") {
-      await fsp.copyFile(source, authPath);
-    } else {
-      await this.replaceSymlink(source, authPath);
+    await this.replaceWithCopy(source, authPath);
+    await this.writeAuthAccountName(name);
+    await this.writeAccountNameToFile(source, name);
+    await this.writeCurrentName(name);
+    return name;
+  }
+
+  public async markCurrentAccount(rawName: string): Promise<string> {
+    const name = this.normalizeAccountName(rawName);
+    const source = this.accountFilePath(name);
+
+    if (!(await this.pathExists(source))) {
+      throw new AccountNotFoundError(name);
     }
 
+    await this.writeAuthAccountName(name);
     await this.writeCurrentName(name);
     return name;
   }
@@ -104,10 +148,143 @@ export class AccountService {
     await fsp.mkdir(dirPath, { recursive: true });
   }
 
-  private async replaceSymlink(target: string, linkPath: string): Promise<void> {
-    await this.removeIfExists(linkPath);
-    const absoluteTarget = path.resolve(target);
-    await fsp.symlink(absoluteTarget, linkPath);
+  private async syncCurrentAuthSnapshot(): Promise<string | null> {
+    const currentName = await this.readAuthAccountName();
+    if (!currentName || !(await this.pathExists(authPath))) {
+      return null;
+    }
+
+    await this.ensureDir(accountsDir);
+    const destination = this.accountFilePath(currentName);
+    if (
+      (await this.pathsReferToSameFile(authPath, destination)) ||
+      (await this.filesHaveSameContents(authPath, destination))
+    ) {
+      return null;
+    }
+
+    await this.backupAccountIfExists(currentName, destination);
+    await fsp.copyFile(authPath, destination);
+    await this.restrictPermissions(destination);
+    return currentName;
+  }
+
+  private async readAuthAccountName(): Promise<string | null> {
+    try {
+      const contents = await fsp.readFile(authPath, "utf8");
+      const parsed = JSON.parse(contents) as Record<string, unknown> | null;
+      const rawName = parsed?.[AUTH_ACCOUNT_FIELD];
+      if (typeof rawName !== "string" || !rawName.trim()) {
+        return null;
+      }
+
+      return this.normalizeAccountName(rawName);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT" || error instanceof SyntaxError) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  private async writeAuthAccountName(name: string): Promise<void> {
+    await this.writeAccountNameToFile(authPath, name);
+  }
+
+  private async writeAccountNameToFile(filePath: string, rawName: string): Promise<void> {
+    const name = this.normalizeAccountName(rawName);
+    const contents = await fsp.readFile(filePath, "utf8");
+    const parsed = JSON.parse(contents) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`Expected ${filePath} to contain a JSON object.`);
+    }
+
+    (parsed as Record<string, unknown>)[AUTH_ACCOUNT_FIELD] = name;
+    await fsp.writeFile(filePath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+    await this.restrictPermissions(filePath);
+  }
+
+  private async backupAccountIfExists(name: string, accountPath: string): Promise<void> {
+    if (!(await this.pathExists(accountPath))) {
+      return;
+    }
+
+    if (await this.filesHaveSameContents(authPath, accountPath)) {
+      return;
+    }
+
+    const backupsDir = path.join(accountsDir, ".backups");
+    await this.ensureDir(backupsDir);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(backupsDir, `${name}.${timestamp}.json`);
+    await fsp.copyFile(accountPath, backupPath);
+    await this.restrictPermissions(backupPath);
+  }
+
+  private async replaceWithCopy(source: string, destination: string): Promise<void> {
+    const destinationIsSymlink = await this.isSymlink(destination);
+    if (!destinationIsSymlink && (await this.pathsReferToSameFile(source, destination))) {
+      return;
+    }
+
+    await this.removeIfExists(destination);
+    await fsp.copyFile(source, destination);
+    await this.restrictPermissions(destination);
+  }
+
+  private async pathsReferToSameFile(left: string, right: string): Promise<boolean> {
+    try {
+      const [leftStat, rightStat] = await Promise.all([fsp.stat(left), fsp.stat(right)]);
+      return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  private async filesHaveSameContents(left: string, right: string): Promise<boolean> {
+    try {
+      const [leftStat, rightStat] = await Promise.all([fsp.stat(left), fsp.stat(right)]);
+      if (leftStat.size !== rightStat.size) {
+        return false;
+      }
+
+      const [leftBuffer, rightBuffer] = await Promise.all([fsp.readFile(left), fsp.readFile(right)]);
+      return leftBuffer.equals(rightBuffer);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  private async isSymlink(targetPath: string): Promise<boolean> {
+    try {
+      const stat = await fsp.lstat(targetPath);
+      return stat.isSymbolicLink();
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  private async restrictPermissions(targetPath: string): Promise<void> {
+    if (process.platform !== "win32") {
+      await fsp.chmod(targetPath, 0o600);
+    }
   }
 
   private async removeIfExists(target: string): Promise<void> {

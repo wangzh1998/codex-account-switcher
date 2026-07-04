@@ -20,6 +20,12 @@ export class AccountNotFoundError extends CodexAuthError {
   }
 }
 
+export class AccountAlreadyExistsError extends CodexAuthError {
+  constructor(accountName: string) {
+    super(`A saved Codex account named "${accountName}" already exists.`);
+  }
+}
+
 export class NoAccountsSavedError extends CodexAuthError {
   constructor() {
     super(`No saved Codex accounts yet. Run "codex-auth save <name>" first.`);
