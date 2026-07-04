@@ -67,6 +67,57 @@ codex-auth list
 codex-auth current
 ```
 
+## Normal workflows
+
+### Switch between saved accounts
+
+```sh
+codex-auth list
+codex-auth use <name>
+codex
+```
+
+If you want to continue the previous Codex conversation after switching accounts:
+
+```sh
+codex-auth use <name>
+codex resume --last
+```
+
+`use` is intentionally non-mutating for saved snapshots. It only copies `~/.codex/accounts/<name>.json` into `~/.codex/auth.json` and updates the active marker.
+
+### Add a new account
+
+```sh
+codex-auth new <name>
+codex login
+codex-auth refresh <name>
+```
+
+After that first login/save cycle, switching to the account is just:
+
+```sh
+codex-auth use <name>
+```
+
+### Re-login or refresh one account
+
+When you intentionally re-login an account, save the refreshed `auth.json` back to that account explicitly:
+
+```sh
+codex login
+codex-auth refresh <name>
+```
+
+Do not run `refresh <name>` unless you are sure the current Codex login is really that account. `refresh` is the command that overwrites a saved snapshot.
+
+### Inspect state
+
+```sh
+codex-auth current
+codex-auth list
+```
+
 ### Command reference
 
 - `codex-auth save <name>` – Validates `<name>`, ensures `auth.json` exists, marks it as `<name>`, then snapshots it to `~/.codex/accounts/<name>.json`.
