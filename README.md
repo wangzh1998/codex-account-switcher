@@ -20,7 +20,7 @@ This fork also writes a small `codex_auth_account` marker into each managed auth
 Install this fork from GitHub:
 
 ```sh
-npm install -g github:wangzh1998/codex-account-switcher
+npm install -g https://github.com/wangzh1998/codex-account-switcher/archive/refs/heads/main.tar.gz
 ```
 
 Or install from a local checkout:
